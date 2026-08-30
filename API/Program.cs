@@ -1,3 +1,4 @@
+using Core.Interfaces;
 using Infrastructure.Data;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -9,40 +10,29 @@ builder.Services.AddControllers();
 builder.Services.AddDbContext<StoreContext>(options =>
 {
     options.UseSqlServer(
-        builder.Configuration.GetConnectionString("DefaultConnection"),
-        sqlOptions => sqlOptions.EnableRetryOnFailure(
-            maxRetryCount: 10,
-            maxRetryDelay: TimeSpan.FromSeconds(10),
-            errorNumbersToAdd: null));
+        builder.Configuration.GetConnectionString("DefaultConnection"));
 });
+
+builder.Services.AddScoped<IProductRepository, ProductRepository>();
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
-{
-    var dbContext = scope.ServiceProvider.GetRequiredService<StoreContext>();
-    var retries = 10;
-
-    while (true)
-    {
-        try
-        {
-            dbContext.Database.Migrate();
-            break;
-        }
-        catch (SqlException)
-        {
-            if (retries-- <= 0)
-            {
-                throw;
-            }
-
-            Thread.Sleep(5000);
-        }
-    }
-}
 
 // Configure the HTTP request pipeline.
 app.MapControllers();
+
+try
+{
+    using var scope = app.Services.CreateScope();
+    var services = scope.ServiceProvider;
+    var context = services.GetRequiredService<StoreContext>();
+    await context.Database.MigrateAsync();
+    await StoreContextSeed.SeedAsync(context);
+}
+catch (Exception ex)
+{
+    Console.WriteLine(ex);
+    throw;
+}
 
 app.Run();
